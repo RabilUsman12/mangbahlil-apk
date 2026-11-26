@@ -1,4 +1,4 @@
-name: Build Streamify APK
+name: Mangbahlil APK
 
 on:
   push:
