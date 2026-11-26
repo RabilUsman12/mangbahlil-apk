@@ -1,1 +1,157 @@
+name: Build Streamify APK
 
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clean old build
+        run: rm -rf streamify_proj dist *.apk
+
+      - name: Generate Android WebView wrapper project
+        run: |
+          set -e
+          mkdir -p streamify_proj/app/src/main/assets
+          mkdir -p streamify_proj/app/src/main/java/com/streamify/app
+          mkdir -p dist
+
+          if [ -f "Streamify_Android.zip" ]; then
+            unzip -o Streamify_Android.zip -d streamify_proj/app/src/main/assets/
+          fi
+
+          cat << 'EOF' > streamify_proj/settings.gradle
+          rootProject.name = "Streamify"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > streamify_proj/build.gradle
+          buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies { classpath 'com.android.tools.build:gradle:8.5.2' }
+          }
+          EOF
+
+          cat << 'EOF' > streamify_proj/app/build.gradle
+          plugins { id 'com.android.application' }
+          android {
+            namespace "com.streamify.app"
+            compileSdk 35
+            defaultConfig {
+              applicationId "com.streamify.app"
+              minSdk 24
+              targetSdk 35
+              versionCode 1
+              versionName "1.0"
+            }
+            buildTypes {
+              release { minifyEnabled false }
+            }
+          }
+          dependencies {
+            implementation 'androidx.appcompat:appcompat:1.7.0'
+          }
+          EOF
+
+          cat << 'EOF' > streamify_proj/app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+            <application
+              android:allowBackup="true"
+              android:label="Streamify"
+              android:usesCleartextTraffic="true"
+              android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+              <activity
+                android:name=".MainActivity"
+                android:exported="true"
+                android:configChanges="orientation|screenSize|keyboardHidden">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN" />
+                  <category android:name="android.intent.category.LAUNCHER" />
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > streamify_proj/app/src/main/java/com/streamify/app/MainActivity.java
+          package com.streamify.app;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.appcompat.app.AppCompatActivity;
+
+          public class MainActivity extends AppCompatActivity {
+            private WebView webView;
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              webView = new WebView(this);
+              setContentView(webView);
+              WebSettings s = webView.getSettings();
+              s.setJavaScriptEnabled(true);
+              s.setDomStorageEnabled(true);
+              s.setAllowFileAccess(true);
+              s.setMediaPlaybackRequiresUserGesture(false);
+              webView.setWebViewClient(new WebViewClient());
+              webView.loadUrl("file:///android_asset/index.html");
+            }
+            @Override
+            public void onBackPressed() {
+              if (webView != null && webView.canGoBack()) webView.goBack();
+              else super.onBackPressed();
+            }
+          }
+          EOF
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK & Gradle
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle Wrapper & Assemble APK
+        run: |
+          set -e
+          cd streamify_proj
+          gradle wrapper --gradle-version 8.7
+          ./gradlew clean assembleRelease --no-daemon
+
+          ANDROID_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)
+          UNSIGNED=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 "$UNSIGNED" ../dist/streamify-aligned.apk
+
+          if [ -n "${{ secrets.KEYSTORE_B64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > ../release.keystore
+            "$ANDROID_HOME/build-tools/$BT/apksigner" sign \
+              --ks ../release.keystore \
+              --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
+              --ks-pass "pass:${{ secrets.KEYSTORE_PASS }}" \
+              --key-pass "pass:${{ secrets.KEY_PASS }}" \
+              --out ../dist/Streamify-release.apk \
+              ../dist/streamify-aligned.apk
+            rm -f ../release.keystore
+          else
+            cp ../dist/streamify-aligned.apk ../dist/Streamify-unsigned.apk
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Streamify-APK
+          path: dist/*.apk
+a
