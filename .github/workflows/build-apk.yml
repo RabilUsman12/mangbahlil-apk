@@ -1,4 +1,4 @@
-name: Mangbahlil APK
+name: Build Streamify APK
 
 on:
   push:
@@ -15,16 +15,171 @@ jobs:
       - name: Clean old build
         run: rm -rf streamify_proj dist *.apk
 
-      - name: Generate Android WebView wrapper project
+      - name: Generate Streamify web files & Android wrapper project
         run: |
           set -e
           mkdir -p streamify_proj/app/src/main/assets
           mkdir -p streamify_proj/app/src/main/java/com/streamify/app
           mkdir -p dist
 
-          if [ -f "Streamify_Android.zip" ]; then
-            unzip -o Streamify_Android.zip -d streamify_proj/app/src/main/assets/
-          fi
+          cat << 'EOF' > streamify_proj/app/src/main/assets/manifest.json
+          {
+            "name": "Streamify",
+            "short_name": "Streamify",
+            "start_url": "index.html",
+            "display": "standalone",
+            "background_color": "#121212",
+            "theme_color": "#1db954",
+            "icons": [
+              {
+                "src": "icon.png",
+                "sizes": "192x192",
+                "type": "image/png"
+              }
+            ]
+          }
+          EOF
+
+          cat << 'EOF' > streamify_proj/app/src/main/assets/index.html
+          <!DOCTYPE html>
+          <html lang="id">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Streamify</title>
+            <link rel="manifest" href="manifest.json" />
+            <style>
+              * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+              body {
+                margin: 0;
+                padding: 18px;
+                background: #121212;
+                color: #ffffff;
+              }
+              .header {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 18px;
+              }
+              .header img {
+                width: 44px;
+                height: 44px;
+                border-radius: 10px;
+              }
+              h1 { margin: 0; font-size: 1.35rem; }
+              .card {
+                background: #1e1e1e;
+                border-radius: 12px;
+                padding: 14px;
+                margin-bottom: 14px;
+              }
+              label { display: block; font-size: 0.9rem; color: #b3b3b3; margin-bottom: 8px; }
+              input[type="file"] { width: 100%; color: #ddd; margin-bottom: 10px; }
+              audio { width: 100%; margin-top: 8px; }
+              .playlist { list-style: none; padding: 0; margin: 0; }
+              .playlist li {
+                padding: 10px 12px;
+                border-radius: 8px;
+                background: #282828;
+                margin-bottom: 8px;
+                cursor: pointer;
+                font-size: 0.92rem;
+              }
+              .playlist li.active {
+                background: #1db954;
+                color: #000000;
+                font-weight: 600;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <img src="icon.png" alt="Streamify Icon" />
+              <h1>Streamify</h1>
+            </div>
+
+            <div class="card">
+              <label for="audioFiles">Pilih file audio lokal (.mp3, .m4a, .ogg, .wav)</label>
+              <input id="audioFiles" type="file" accept="audio/*" multiple />
+              <audio id="player" controls></audio>
+            </div>
+
+            <div class="card">
+              <label>Daftar Putar</label>
+              <ul id="playlist" class="playlist"></ul>
+            </div>
+
+            <script>
+              const input = document.getElementById('audioFiles');
+              const player = document.getElementById('player');
+              const listEl = document.getElementById('playlist');
+              let tracks = [];
+              let currentIndex = -1;
+
+              function playTrack(idx) {
+                if (idx < 0 || idx >= tracks.length) return;
+                currentIndex = idx;
+                const item = tracks[idx];
+                player.src = item.url;
+                player.play();
+
+                if ('mediaSession' in navigator) {
+                  navigator.mediaSession.metadata = new MediaMetadata({
+                    title: item.name,
+                    artist: 'Streamify Local'
+                  });
+                }
+
+                [...listEl.children].forEach((li, i) => {
+                  li.classList.toggle('active', i === currentIndex);
+                });
+              }
+
+              input.addEventListener('change', (e) => {
+                const files = [...e.target.files];
+                if (!files.length) return;
+                tracks = files.map((file) => ({
+                  name: file.name,
+                  url: URL.createObjectURL(file)
+                }));
+                listEl.innerHTML = '';
+                tracks.forEach((t, i) => {
+                  const li = document.createElement('li');
+                  li.textContent = t.name;
+                  li.onclick = () => playTrack(i);
+                  listEl.appendChild(li);
+                });
+                playTrack(0);
+              });
+
+              player.addEventListener('ended', () => {
+                if (currentIndex + 1 < tracks.length) {
+                  playTrack(currentIndex + 1);
+                }
+              });
+            </script>
+          </body>
+          </html>
+          EOF
+
+          python3 - << 'EOF'
+          import zlib, struct
+
+          def make_png(w, h, r, g, b):
+              def chunk(tag, data):
+                  return (struct.pack(">I", len(data)) + tag + data +
+                          struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff))
+              ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+              raw = b"".join(b"\x00" + bytes([r, g, b]) * w for _ in range(h))
+              return (b"\x89PNG\r\n\x1a\n" +
+                      chunk(b"IHDR", ihdr) +
+                      chunk(b"IDAT", zlib.compress(raw)) +
+                      chunk(b"IEND", b""))
+
+          with open("streamify_proj/app/src/main/assets/icon.png", "wb") as f:
+              f.write(make_png(192, 192, 29, 185, 84))
+          EOF
 
           cat << 'EOF' > streamify_proj/settings.gradle
           rootProject.name = "Streamify"
@@ -123,7 +278,7 @@ jobs:
       - name: Set up Android SDK & Gradle
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle Wrapper & Assemble APK
+      - name: Build, Align & Sign APK
         run: |
           set -e
           cd streamify_proj
@@ -133,25 +288,29 @@ jobs:
           ANDROID_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)
           UNSIGNED=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          test -n "$UNSIGNED"
+
           "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 "$UNSIGNED" ../dist/streamify-aligned.apk
 
-          if [ -n "${{ secrets.KEYSTORE_B64 }}" ]; then
-            echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > ../release.keystore
-            "$ANDROID_HOME/build-tools/$BT/apksigner" sign \
-              --ks ../release.keystore \
-              --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
-              --ks-pass "pass:${{ secrets.KEYSTORE_PASS }}" \
-              --key-pass "pass:${{ secrets.KEY_PASS }}" \
-              --out ../dist/Streamify-release.apk \
-              ../dist/streamify-aligned.apk
-            rm -f ../release.keystore
-          else
-            cp ../dist/streamify-aligned.apk ../dist/Streamify-unsigned.apk
-          fi
+          [ -f "$HOME/.android/debug.keystore" ] || keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -alias androiddebugkey \
+            -storepass android \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
 
-      - name: Upload APK
+          "$ANDROID_HOME/build-tools/$BT/apksigner" sign \
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out ../dist/Streamify-signed.apk \
+            ../dist/streamify-aligned.apk
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Streamify-APK
-          path: dist/*.apk
-a
+          path: dist/Streamify-signed.apk
+          
