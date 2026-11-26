@@ -217,3 +217,11 @@ jobs:
           cat << 'EOF' > streamify_proj/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="
+          
+   - name: Upload APK Artifact
+     uses: actions/upload-artifact@v4
+     with:
+       name: Streamify-APK
+       path: dist/*.apk
+       if-no-files-found: error
+       
