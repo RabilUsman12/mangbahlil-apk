@@ -15,7 +15,7 @@ jobs:
       - name: Clean old build
         run: rm -rf streamify_proj dist *.apk
 
-      - name: Generate Streamify web files & Android wrapper project
+      - name: Prepare Streamify web files & Android wrapper project
         run: |
           set -e
           mkdir -p streamify_proj/app/src/main/assets
@@ -216,101 +216,4 @@ jobs:
 
           cat << 'EOF' > streamify_proj/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-            <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-            <application
-              android:allowBackup="true"
-              android:label="Streamify"
-              android:usesCleartextTraffic="true"
-              android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-              <activity
-                android:name=".MainActivity"
-                android:exported="true"
-                android:configChanges="orientation|screenSize|keyboardHidden">
-                <intent-filter>
-                  <action android:name="android.intent.action.MAIN" />
-                  <category android:name="android.intent.category.LAUNCHER" />
-                </intent-filter>
-              </activity>
-            </application>
-          </manifest>
-          EOF
-
-          cat << 'EOF' > streamify_proj/app/src/main/java/com/streamify/app/MainActivity.java
-          package com.streamify.app;
-          import android.os.Bundle;
-          import android.webkit.WebSettings;
-          import android.webkit.WebView;
-          import android.webkit.WebViewClient;
-          import androidx.appcompat.app.AppCompatActivity;
-
-          public class MainActivity extends AppCompatActivity {
-            private WebView webView;
-            @Override
-            protected void onCreate(Bundle savedInstanceState) {
-              super.onCreate(savedInstanceState);
-              webView = new WebView(this);
-              setContentView(webView);
-              WebSettings s = webView.getSettings();
-              s.setJavaScriptEnabled(true);
-              s.setDomStorageEnabled(true);
-              s.setAllowFileAccess(true);
-              s.setMediaPlaybackRequiresUserGesture(false);
-              webView.setWebViewClient(new WebViewClient());
-              webView.loadUrl("file:///android_asset/index.html");
-            }
-            @Override
-            public void onBackPressed() {
-              if (webView != null && webView.canGoBack()) webView.goBack();
-              else super.onBackPressed();
-            }
-          }
-          EOF
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Set up Android SDK & Gradle
-        uses: android-actions/setup-android@v3
-
-      - name: Build, Align & Sign APK
-        run: |
-          set -e
-          cd streamify_proj
-          gradle wrapper --gradle-version 8.7
-          ./gradlew clean assembleRelease --no-daemon
-
-          ANDROID_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)
-          UNSIGNED=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          test -n "$UNSIGNED"
-
-          "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 "$UNSIGNED" ../dist/streamify-aligned.apk
-
-          [ -f "$HOME/.android/debug.keystore" ] || keytool -genkeypair \
-            -keystore "$HOME/.android/debug.keystore" \
-            -alias androiddebugkey \
-            -storepass android \
-            -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US" \
-            -keyalg RSA -keysize 2048 -validity 10000
-
-          "$ANDROID_HOME/build-tools/$BT/apksigner" sign \
-            --ks "$HOME/.android/debug.keystore" \
-            --ks-key-alias androiddebugkey \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --out ../dist/Streamify-signed.apk \
-            ../dist/streamify-aligned.apk
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Streamify-APK
-          path: dist/Streamify-signed.apk
-          
+          <manifest xmlns:android="
